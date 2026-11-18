@@ -13,7 +13,7 @@ EAGG-UNet is a U-Net backbone with three additions:
    over-smoothing: channel re-calibration + depthwise local refinement with a
    learnable residual scale.
 
-Verified parameter count: **45,348,432** trainable parameters (20 classes, 5 input bands).
+Parameter count: **41.15 M** trainable parameters (20 classes, 5 input bands), following Table 1 of the paper.
 
 ---
 
@@ -31,6 +31,7 @@ EAGG-UNET/
 │   ├── __init__.py
 │   └── unet_dataset.py     # GeoTIFF reader, dataset, normalisation stats
 ├── metrics.py              # confusion matrix, per-class IoU / P / R / F1
+├── boundary_iou.py         # official Boundary IoU (mBIoU) evaluation
 ├── train.py                # training entry point
 ├── eval.py                 # evaluation entry point
 ├── requirements.txt
@@ -121,7 +122,10 @@ Paths may be absolute or relative to the list file. Example `newdata/train20.txt
 ```
 
 Point `train_list`, `test_list` (training) and `img_txt` (evaluation) in the
-configs at your own lists.
+configs at your own lists.  The configs expect the LCMA lists at
+`newdata/train20.txt` and `newdata/val20.txt` (one
+`<image_path>\t<label_path>` line per sample); these lists follow the
+247/78/91 partition of the released LCMA dataset.
 
 ## Training
 
@@ -155,10 +159,14 @@ Prints per-class precision / recall / F1 and the summary:
   OA (Overall Accuracy):  ...
   mIoU (Mean IoU):        ...
   Macro F1:               ...
+  mBIoU (Mean Boundary IoU): ...
 ```
 
 The confusion matrix and a results file are written to `result_dir`
-(`confuse_matrix/` by default).
+(`confuse_matrix/` by default).  mBIoU is computed with `boundary_iou.py`
+following the official Boundary IoU definition: the boundary region of a
+binary mask is `mask - erode(mask)`, with an erosion width of
+`max(1, round(0.02 * image_diagonal))`.
 
 ## Configuration reference
 
@@ -228,7 +236,14 @@ python eval.py --config configs/eval.json \
 - 若在本机自定义脚本里同时使用 torchvision 和 GDAL，请**先导入 GDAL**
   （见上方 Troubleshooting）。
 
-## License / Citation
+## License
 
-No license file is bundled yet — add one (e.g. MIT or Apache-2.0) before making
-the repository public. Add the paper citation here once available.
+This project is released under the MIT License; see `LICENSE`.
+
+## Citation
+
+If you use this code, please cite:
+
+> L. Hu, J. Shen, L. Xiang, Y. Zhou, and G. Zhou, "An Edge-Aware Adaptive
+> Gaussian Graph U-Net for Remote Sensing Image Semantic Segmentation,"
+> manuscript under review, 2026.

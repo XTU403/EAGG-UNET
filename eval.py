@@ -20,6 +20,7 @@ import torch
 from utils.unet_dataset import build_transform, read_label, read_tiff, to_tensor
 
 from metrics import eval_metrics
+from boundary_iou import boundary_iou_per_image
 from models import build_model
 
 
@@ -90,6 +91,8 @@ def evaluate(config, checkpoint_path=None):
     class_precision = np.zeros(num_classes)
     class_recall = np.zeros(num_classes)
     class_f1 = np.zeros(num_classes)
+    biou_sum = np.zeros(num_classes)
+    biou_count = np.zeros(num_classes)
 
     txt_path = config.get('img_txt')
     if txt_path is None:
@@ -159,6 +162,15 @@ def evaluate(config, checkpoint_path=None):
         inter_sum = inter_sum + inter
         unoin_sum = unoin_sum + unoin
 
+        # Boundary IoU is computed per image and per class, then averaged over
+        # the images in which each class is present (see boundary_iou.py).
+        pred_map = torch.argmax(output, dim=1)[0].detach().cpu().numpy()
+        gt_map = label[0].detach().cpu().numpy()
+        for cls, score in boundary_iou_per_image(
+                pred_map, gt_map, num_classes).items():
+            biou_sum[cls] += score
+            biou_count[cls] += 1.0
+
         iou_per_class = inter_sum / (np.spacing(1) + unoin_sum)
         mean_iou = iou_per_class.mean()
 
@@ -182,6 +194,16 @@ def evaluate(config, checkpoint_path=None):
 
     macro_f1 = np.mean(class_f1)
 
+    # mBIoU: average the per-image Boundary IoU of each class, then average
+    # over the classes that have at least one valid image.
+    valid_biou = biou_count > 0
+    if valid_biou.any():
+        per_class_biou = biou_sum[valid_biou] / biou_count[valid_biou]
+        mean_biou = float(per_class_biou.mean())
+    else:
+        per_class_biou = np.zeros(num_classes)
+        mean_biou = float('nan')
+
     print('=' * 60)
     print('per-class metrics:')
     for i in range(num_classes):
@@ -202,6 +224,7 @@ def evaluate(config, checkpoint_path=None):
     print('  OA (Overall Accuracy):  {:.5f}'.format(pixelAcc))
     print('  mIoU (Mean IoU):        {:.5f}'.format(mean_iou))
     print('  Macro F1:               {:.5f}'.format(macro_f1))
+    print('  mBIoU (Mean Boundary IoU): {:.5f}'.format(mean_biou))
     print('=' * 60)
 
     # ---------- persist ----------
@@ -223,6 +246,7 @@ def evaluate(config, checkpoint_path=None):
         f.write('OA: {:.5f}\n'.format(pixelAcc))
         f.write('mIoU: {:.5f}\n'.format(mean_iou))
         f.write('Macro F1: {:.5f}\n'.format(macro_f1))
+        f.write('mBIoU: {:.5f}\n'.format(mean_biou))
 
     print('detailed results saved: {}'.format(result_path))
 
@@ -230,6 +254,7 @@ def evaluate(config, checkpoint_path=None):
         'OA': pixelAcc,
         'mIoU': mean_iou,
         'Macro_F1': macro_f1,
+        'mBIoU': mean_biou,
         'model': model_name,
     }
 
